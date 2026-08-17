@@ -34,8 +34,14 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "files": [
     "lib/index.js",
@@ -45,10 +51,12 @@
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts"
+    "lib/typert.remote-client.d.ts",
+    "cordis.patch.yml"
   ],
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-client-sidechat": "workspace:^",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
