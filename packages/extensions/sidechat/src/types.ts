@@ -34,10 +34,11 @@ export interface SidechatJobIdResult {
   jobId: string
 }
 
-/** Accumulated text of one job; `done` once generation settled. */
+/** Accumulated text and reasoning of one job; `done` once generation settled. */
 export interface SidechatPollResult {
   done: boolean
   text: string
+  reasoning: string
   error: string | null
 }
 

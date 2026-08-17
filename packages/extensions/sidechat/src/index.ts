@@ -46,6 +46,7 @@ interface DefaultModelFace { currentSelection(): { provider: string; model: stri
 interface Job {
   id: string
   text: string
+  reasoning: string
   done: boolean
   error: string | null
 }
@@ -222,13 +223,14 @@ export default class SidechatService extends TypertRemoteService {
     }
 
     const id = `sidechat-${++this.seq}`
-    const job: Job = { id, text: '', done: false, error: null }
+    const job: Job = { id, text: '', reasoning: '', done: false, error: null }
     this.jobs.set(id, job)
     void (async () => {
       try {
         for await (const chunk of llm.stream(options)) {
           if (this.jobs.get(id) !== job) return
           if (chunk.type === 'text-delta') job.text += chunk.text
+          else if (chunk.type === 'reasoning-delta') job.reasoning += chunk.text
           else if (chunk.type === 'finish' && chunk.reason.kind === 'error') {
             const failure = chunk.reason.failure
             job.error = failure !== null && typeof failure === 'object' && 'message' in failure
@@ -245,12 +247,12 @@ export default class SidechatService extends TypertRemoteService {
     return { jobId: id }
   }
 
-  /** Read the accumulated text of one job. */
+  /** Read the accumulated text and reasoning of one job. */
   @Remote
   poll(args: SidechatPollArgs): SidechatPollResult {
     const job = this.jobs.get(String(args?.jobId ?? ''))
-    if (job === undefined) return { done: true, text: '', error: 'side chat: job not found' }
-    return { done: job.done, text: job.text, error: job.error }
+    if (job === undefined) return { done: true, text: '', reasoning: '', error: 'side chat: job not found' }
+    return { done: job.done, text: job.text, reasoning: job.reasoning, error: job.error }
   }
 
   /** Stop polling a job; the in-flight stream finishes but no longer updates it. */

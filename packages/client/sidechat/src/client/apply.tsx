@@ -1,8 +1,10 @@
 /**
- * Side chat plugin, browser half: hover-to-open hot zone over `shell.overlay`
- * and the chat panel in the right `details` column. The panel is a focused
- * project Q&A surface: model/effort selection and streaming replies, driven
- * through the host `sidechat` Remote (see @deepseek-ai/dsh-sidechat).
+ * Side chat plugin, browser half: hover-to-open hot zone over `shell.overlay`,
+ * the chat panel in the right `details` column, and a selection-triggered
+ * "add to side chat" button. The panel is a focused project Q&A surface:
+ * model/effort selection, streaming replies with collapsible reasoning, table
+ * markdown, and a confirm-guarded clear — driven through the host `sidechat`
+ * Remote (see @deepseek-ai/dsh-sidechat).
  * @module @deepseek-ai/dsh-client-sidechat/client
  */
 
@@ -35,8 +37,15 @@ async function callRemote<T>(call: () => Promise<RemoteResultLike<T>>): Promise<
   return result.value
 }
 
-/** Panel open state shared by the hot zone and the panel (transient UI state). */
-const store = { open: false }
+/** Shared plugin state: panel open flag plus the selection-to-send handoff. */
+const store: {
+  open: boolean
+  modelKey: string
+  effort: string
+  messages: unknown[]
+  pendingSend: string | null
+  sendHook: ((text: string) => void) | null
+} = { open: false, modelKey: '', effort: '', messages: [], pendingSend: null, sendHook: null }
 const subscribers = new Set<() => void>()
 const setOpenShared = (value: boolean, layout?: LayoutFace): void => {
   store.open = value
@@ -62,6 +71,13 @@ interface ModelGroup {
 }
 
 const isHr = (line: string): boolean => /^-{3,}$/.test(line) || /^\*{3,}$/.test(line) || /^_{3,}$/.test(line)
+
+/** Split one markdown table row into cells, or null when the line is not a row. */
+function splitTableRow(line: string): string[] | null {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|')) return null
+  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+}
 
 /** Inline markdown spans: code, bold, italic, links. */
 function renderInline(text: string): (string | ReactElement)[] {
@@ -112,6 +128,32 @@ function renderMarkdown(text: string): (string | ReactElement)[] {
       i += 1
       continue
     }
+    const headerCells = splitTableRow(line)
+    const nextCells = i + 1 < lines.length ? splitTableRow(lines[i + 1] ?? '') : null
+    if (headerCells !== null && nextCells !== null
+      && nextCells.length >= 2 && nextCells.every(cell => /^:?-+:?$/.test(cell))) {
+      const bodyRows: string[][] = []
+      i += 2
+      while (i < lines.length) {
+        const cells = splitTableRow(lines[i] ?? '')
+        if (cells === null || (lines[i] ?? '').trim() === '') break
+        bodyRows.push(cells)
+        i += 1
+      }
+      nodes.push(React.createElement('table', { key: `md-table-${nodes.length}`, className: css.mdTable },
+        React.createElement('thead', null,
+          React.createElement('tr', null, headerCells.map((cell, idx) =>
+            React.createElement('th', { key: idx }, ...renderInline(cell)))),
+        ),
+        React.createElement('tbody', null,
+          bodyRows.map((row, ri) =>
+            React.createElement('tr', { key: ri },
+              row.map((cell, ci) =>
+                React.createElement('td', { key: ci }, ...renderInline(cell))))),
+        ),
+      ))
+      continue
+    }
     if (isHr(trimmed)) {
       nodes.push(<hr key={`md-hr-${nodes.length}`} className={css.mdHr} />)
       i += 1
@@ -156,6 +198,57 @@ function renderMarkdown(text: string): (string | ReactElement)[] {
   return nodes
 }
 
+/** Selection-triggered button: sends the main-chat selection into the side chat. */
+function SelectionSendButton(): ReactElement | null {
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const [selectedText, setSelectedText] = useState('')
+  useEffect(() => {
+    const onSelectionChange = (): void => {
+      try {
+        const selection = window.getSelection()
+        const value = selection?.toString().trim() ?? ''
+        if (value === '') {
+          setPosition(null)
+          setSelectedText('')
+          return
+        }
+        const node = selection?.anchorNode
+        const el = node !== null && node !== undefined && node.nodeType === 1 ? node : (node !== null && node !== undefined ? node.parentElement : null)
+        if (el instanceof Element && el.closest('.sidechatPanel') !== null) {
+          setPosition(null)
+          setSelectedText('')
+          return
+        }
+        const range = selection?.getRangeAt(0)
+        if (range === undefined) { setPosition(null); return }
+        const rect = range.getBoundingClientRect()
+        if (rect.width === 0 && rect.height === 0) { setPosition(null); return }
+        setSelectedText(value.slice(0, 2000))
+        setPosition({ x: Math.max(0, rect.left), y: Math.max(0, rect.top) })
+      } catch { setPosition(null) }
+    }
+    window.document.addEventListener('selectionchange', onSelectionChange)
+    window.document.addEventListener('mouseup', onSelectionChange)
+    return () => {
+      window.document.removeEventListener('selectionchange', onSelectionChange)
+      window.document.removeEventListener('mouseup', onSelectionChange)
+    }
+  }, [])
+  if (position === null || selectedText === '') return null
+  return React.createElement('button', {
+    className: css.sendsel,
+    type: 'button',
+    style: { left: `${position.x}px`, top: `${position.y}px` },
+    onMouseDown: (event: React.MouseEvent) => event.preventDefault(),
+    onClick: () => {
+      store.pendingSend = selectedText
+      setOpenShared(true, undefined)
+      setPosition(null)
+      setSelectedText('')
+    },
+  }, '添加到侧边聊天')
+}
+
 /** Full panel props: the details runtime share plus the plugin context. */
 interface PanelProps {
   ctx: ClientContext
@@ -168,11 +261,16 @@ function Panel(props: PanelProps): ReactElement {
   const [modelCatalog, setModelCatalog] = useState<{ groups: ModelGroup[]; current: { provider: string; model: string } | null } | null>(null)
   const [modelKey, setModelKey] = useState('')
   const [effort, setEffort] = useState('')
-  const [messages, setMessages] = useState<{ id: string; role: string; content: string; error: string | null }[]>([])
+  const [messages, setMessages] = useState<{ id: string; role: string; content: string; reasoning: string; error: string | null }[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  store.modelKey = modelKey
+  store.effort = effort
+  store.messages = messages
 
   const findModel = (key: string): ModelOption | null => {
     if (key === '') return null
@@ -213,7 +311,9 @@ function Panel(props: PanelProps): ReactElement {
     const timer = window.setInterval(() => {
       void callRemote(() => ctx.remote.sidechat.poll({ jobId })).then(value => {
         setMessages(prev => prev.map(message => (
-          message.id === jobId ? { ...message, content: value.text, error: value.error } : message
+          message.id === jobId
+            ? { ...message, content: value.text, reasoning: value.reasoning, error: value.error }
+            : message
         )))
         if (value.done) {
           setJobId(null)
@@ -229,10 +329,10 @@ function Panel(props: PanelProps): ReactElement {
     return () => { window.clearInterval(timer) }
   }, [ctx, jobId])
 
-  const send = (): void => {
-    const text = input.trim()
+  const send = (externalText?: string): void => {
+    const text = (externalText !== undefined && externalText !== null ? externalText : input).trim()
     if (text === '' || busy) return
-    const userMessage = { id: `user-${Date.now()}`, role: 'user', content: text, error: null }
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', content: text, reasoning: '', error: null }
     const history = messages.concat([userMessage])
       .filter(message => message.content !== '')
       .map(message => ({ role: message.role, content: message.content }))
@@ -256,12 +356,26 @@ function Panel(props: PanelProps): ReactElement {
     }
     void callRemote(() => ctx.remote.sidechat.start(args)).then(value => {
       setJobId(value.jobId)
-      setMessages(prev => prev.concat([{ id: value.jobId, role: 'assistant', content: '', error: null }]))
+      setMessages(prev => prev.concat([{ id: value.jobId, role: 'assistant', content: '', reasoning: '', error: null }]))
     }, (reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason))
       setBusy(false)
     })
   }
+  store.sendHook = send
+
+  useEffect(() => {
+    if (!store.open) return
+    const timer = window.setInterval(() => {
+      if (store.pendingSend !== null && store.pendingSend !== undefined && store.pendingSend !== '') {
+        const value = store.pendingSend
+        store.pendingSend = null
+        const hook = store.sendHook
+        if (typeof hook === 'function') hook(value)
+      }
+    }, 200)
+    return () => { window.clearInterval(timer) }
+  }, [])
 
   const stop = (): void => {
     if (jobId !== null) {
@@ -269,6 +383,13 @@ function Panel(props: PanelProps): ReactElement {
       setJobId(null)
       setBusy(false)
     }
+  }
+
+  const clear = (): void => {
+    stop()
+    setMessages([])
+    setError(null)
+    setConfirmClear(false)
   }
 
   const modelOptions: ReactElement[] = []
@@ -291,9 +412,18 @@ function Panel(props: PanelProps): ReactElement {
     const body = isUser
       ? message.content
       : (message.content === '' && busy ? '…' : renderMarkdown(message.content))
+    const reasoningBlock = !isUser && message.reasoning !== ''
+      ? (
+        <details className={css.reasoning} open={busy}>
+          <summary>💭 思考过程</summary>
+          <div className={css.reasoningBody}>{message.reasoning}</div>
+        </details>
+      )
+      : null
     return (
       <div key={message.id} className={isUser ? `${css.msg} ${css.msgUser}` : `${css.msg} ${css.msgAssistant}`}>
         <div className={css.msgRole}>{isUser ? '你' : '助手'}</div>
+        {reasoningBlock}
         <div className={css.msgBody}>{body}</div>
         {message.error !== null ? <div className={css.msgError}>{message.error}</div> : null}
       </div>
@@ -301,11 +431,19 @@ function Panel(props: PanelProps): ReactElement {
   })
 
   return (
-    <div className={css.panel} role="dialog" aria-label="侧边聊天">
+    <div className={`${css.panel} sidechatPanel`} role="dialog" aria-label="侧边聊天">
       <div className={css.header}>
         <span className={css.headerTitle}>侧边聊天</span>
+        <button className={css.iconBtn} type="button" title="清空对话，开始新的侧边聊天" onClick={() => setConfirmClear(true)}>清空</button>
         <button className={css.iconBtn} type="button" title="关闭" onClick={() => setOpenShared(false, ctx.get('layout') as LayoutFace | undefined)}>✕</button>
       </div>
+      {confirmClear ? (
+        <div className={css.confirm}>
+          <span>清空后内容不可恢复，确认清空？</span>
+          <button className={`${css.confirmBtn} ${css.confirmBtnDanger}`} type="button" onClick={clear}>确认清空</button>
+          <button className={css.confirmBtn} type="button" onClick={() => setConfirmClear(false)}>取消</button>
+        </div>
+      ) : null}
       {error !== null ? <div className={css.error}>{error}</div> : null}
       <div className={css.messages}>
         {messageNodes.length === 0 ? (
@@ -332,7 +470,7 @@ function Panel(props: PanelProps): ReactElement {
             className={css.send}
             type="button"
             disabled={!busy && input.trim() === ''}
-            onClick={busy ? stop : send}
+            onClick={busy ? stop : () => send()}
           >{busy ? '停止' : '发送'}</button>
         </div>
         <div className={css.composerTools}>
@@ -347,7 +485,8 @@ function Panel(props: PanelProps): ReactElement {
 }
 
 /**
- * Browser plugin body: mount the hover hot zone and the details-column panel.
+ * Browser plugin body: mount the hover hot zone, the selection-send button,
+ * and the details-column panel.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -363,6 +502,10 @@ export function apply(ctx: ClientContext): void {
         />
       )
     },
+  ))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+    { name: 'shell.overlay', id: 'sidechat-sendsel', order: 6 },
+    () => <SelectionSendButton />,
   ))
   ctx.slots.inject('details', () => ctx.slots.register(
     { name: 'details' },
