@@ -1,16 +1,7 @@
 /**
- * DSH Side Chat — Client half
- * ============================
- * 平台：Client（浏览器）
- * 用法：粘贴为 DSH Cordis 插件的 code.client（一个 plain-JS 函数体，返回 Cordis Plugin）。
- *
- * 职责：
- *  - 右侧边缘悬停热区（shell.overlay）→ 打开 details 列
- *  - 右侧 details 列面板：项目/会话上下文条、消息流、输入卡片
- *  - 输入 `/` 弹出命令建议（前缀过滤、点击填入）
- *  - 输入卡片底部工具行：权限模式 / 模型（分组目录）/ 推理等级
- *  - markdown 渲染（纯 React.createElement，无第三方库）
- *  - 流式输出轮询（200ms）、Stop / 发送
+ * DSH Side Chat — Client half（动态插件版，pkg-25）
+ * 用法：粘贴为 DSH Cordis 插件的 code.client（plain-JS 函数体，返回 Cordis Plugin）。
+ * 功能：悬停热区、右侧面板、清空二次确认、选中文本添加、思考过程、表格渲染、模型/推理等级。
  */
 return {
   inject: ['timer'],
@@ -19,7 +10,7 @@ return {
     if (slots === undefined) return
     const layout = ctx.get('layout')
 
-    const store = { open: false }
+    const store = { open: false, modelKey: '', effort: '', messages: [], pendingSend: null, sendHook: null }
     const subscribers = new Set()
     const setOpen = (value) => {
       store.open = value
@@ -41,13 +32,13 @@ return {
       return open
     }
 
-    const MODES = [
-      { id: 'read-only', label: 'Read-only' },
-      { id: 'workspace-write', label: 'Workspace write' },
-      { id: 'danger-full-access', label: 'Full access' },
-    ]
-
     const isHr = (line) => /^-{3,}$/.test(line) || /^\*{3,}$/.test(line) || /^_{3,}$/.test(line)
+
+    function splitTableRow(line) {
+      const trimmed = line.trim()
+      if (!trimmed.includes('|')) return null
+      return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
+    }
 
     function renderInline(text) {
       const nodes = []
@@ -97,6 +88,32 @@ return {
           const level = heading[1].length
           nodes.push(React.createElement('h' + level, { key: 'md-h' + nodes.length, className: 'sc-md-h sc-md-h' + level }, ...renderInline(heading[2])))
           i++
+          continue
+        }
+        const headerCells = splitTableRow(line)
+        const nextCells = i + 1 < lines.length ? splitTableRow(lines[i + 1]) : null
+        if (headerCells !== null && nextCells !== null
+          && nextCells.length >= 2 && nextCells.every((cell) => /^:?-+:?$/.test(cell))) {
+          const bodyRows = []
+          i += 2
+          while (i < lines.length) {
+            const cells = splitTableRow(lines[i])
+            if (cells === null || lines[i].trim() === '') break
+            bodyRows.push(cells)
+            i++
+          }
+          nodes.push(React.createElement('table', { key: 'md-table' + nodes.length, className: 'sc-md-table' },
+            React.createElement('thead', null,
+              React.createElement('tr', null, headerCells.map((cell, idx) =>
+                React.createElement('th', { key: idx }, ...renderInline(cell)))),
+            ),
+            React.createElement('tbody', null,
+              bodyRows.map((row, ri) =>
+                React.createElement('tr', { key: ri },
+                  row.map((cell, ci) =>
+                    React.createElement('td', { key: ci }, ...renderInline(cell))))),
+            ),
+          ))
           continue
         }
         if (isHr(trimmed)) {
@@ -160,7 +177,13 @@ return {
 .sc-header-title { font-weight: 600; font-size: 14px; margin-right: auto; }
 .sc-icon-btn { border: none; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 6px; }
 .sc-icon-btn:hover { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
-.sc-context { padding: 8px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-confirm { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.sc-confirm span { margin-right: auto; }
+.sc-confirm-btn { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; padding: 3px 10px; }
+.sc-confirm-btn:hover { background: var(--dsw-alias-bg-layer-1); }
+.sc-confirm-btn-danger { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.sc-sendsel { position: fixed; z-index: 1100; transform: translateY(-100%); margin-top: -6px; padding: 4px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); font-size: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); white-space: nowrap; }
+.sc-sendsel:hover { background: var(--dsw-alias-bg-layer-1); }
 .sc-messages { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .sc-empty { margin: auto; text-align: center; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; padding: 0 24px; }
 .sc-msg { display: flex; flex-direction: column; gap: 3px; max-width: 100%; }
@@ -170,6 +193,9 @@ return {
 .sc-msg-body { padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
 .sc-msg-assistant .sc-msg-body { background: transparent; border: none; padding: 2px 2px; white-space: normal; }
 .sc-msg-user .sc-msg-body { background: var(--dsw-alias-brand-primary); color: #fff; border-bottom-right-radius: 2px; max-width: 100%; }
+.sc-reasoning { margin: 2px 0 6px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); padding: 0 10px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.sc-reasoning summary { cursor: pointer; padding: 5px 0; user-select: none; }
+.sc-reasoning-body { white-space: pre-wrap; padding: 2px 0 8px; line-height: 1.5; }
 .sc-md-p { margin: 5px 0; }
 .sc-md-h { margin: 10px 0 5px; font-weight: 600; line-height: 1.3; }
 .sc-md-h1 { font-size: 1.25em; }
@@ -185,6 +211,9 @@ return {
 .sc-md-quote { margin: 5px 0; padding: 2px 10px; border-left: 3px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-secondary); }
 .sc-md-hr { border: none; border-top: 1px solid var(--dsw-alias-border-l1); margin: 8px 0; }
 .sc-md-link { color: var(--dsw-alias-brand-primary); text-decoration: underline; }
+.sc-md-table { border-collapse: collapse; margin: 6px 0; font-size: 12px; width: 100%; }
+.sc-md-table th, .sc-md-table td { border: 1px solid var(--dsw-alias-border-l1); padding: 4px 8px; text-align: left; vertical-align: top; }
+.sc-md-table th { background: var(--dsw-alias-bg-layer-1); font-weight: 600; }
 .sc-msg-error { font-size: 11px; color: var(--dsw-alias-state-error-primary); }
 .sc-error { padding: 8px 14px; font-size: 12px; color: var(--dsw-alias-state-error-primary); border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .sc-composer { margin: 10px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }
@@ -196,11 +225,6 @@ return {
 .sc-input-row { display: flex; gap: 8px; padding: 8px; align-items: flex-end; }
 .sc-input { flex: 1; resize: none; border: none; background: transparent; color: var(--dsw-alias-label-primary); padding: 4px 6px; font: inherit; }
 .sc-input:focus { outline: none; }
-.sc-suggest { border-bottom: 1px solid var(--dsw-alias-border-l1); max-height: 168px; overflow-y: auto; }
-.sc-suggest-item { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; background: transparent; border: none; color: var(--dsw-alias-label-primary); padding: 6px 10px; cursor: pointer; font-size: 12px; }
-.sc-suggest-item:hover { background: var(--dsw-alias-bg-layer-2); }
-.sc-suggest-name { font-weight: 600; }
-.sc-suggest-desc { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-send { border: none; border-radius: 8px; padding: 8px 14px; background: var(--dsw-alias-brand-primary); color: #fff; cursor: pointer; font-weight: 600; }
 .sc-send:disabled { opacity: 0.5; cursor: default; }
 `)
@@ -230,20 +254,75 @@ return {
       })
     }
 
+    function SelectionSendButton() {
+      const [position, setPosition] = React.useState(null)
+      const [selectedText, setSelectedText] = React.useState('')
+      React.useEffect(() => {
+        const onSelectionChange = () => {
+          try {
+            const selection = window.getSelection()
+            const value = selection.toString().trim()
+            if (value === '') {
+              setPosition(null)
+              setSelectedText('')
+              return
+            }
+            const node = selection.anchorNode
+            const el = node !== null && node.nodeType === 1 ? node : (node !== null ? node.parentElement : null)
+            if (el !== null && typeof el.closest === 'function' && el.closest('.sc-panel') !== null) {
+              setPosition(null)
+              setSelectedText('')
+              return
+            }
+            const range = selection.getRangeAt(0)
+            const rect = range.getBoundingClientRect()
+            if (rect.width === 0 && rect.height === 0) {
+              setPosition(null)
+              return
+            }
+            setSelectedText(value.slice(0, 2000))
+            setPosition({ x: Math.max(0, rect.left), y: Math.max(0, rect.top) })
+          } catch (_) {
+            setPosition(null)
+          }
+        }
+        document.addEventListener('selectionchange', onSelectionChange)
+        document.addEventListener('mouseup', onSelectionChange)
+        return () => {
+          document.removeEventListener('selectionchange', onSelectionChange)
+          document.removeEventListener('mouseup', onSelectionChange)
+        }
+      }, [])
+      if (position === null || selectedText === '') return null
+      return React.createElement('button', {
+        className: 'sc-sendsel',
+        type: 'button',
+        style: { left: String(position.x) + 'px', top: String(position.y) + 'px' },
+        onMouseDown: (event) => event.preventDefault(),
+        onClick: () => {
+          store.pendingSend = selectedText
+          setOpenShared(true, layout)
+          setPosition(null)
+          setSelectedText('')
+        },
+      }, '添加到侧边聊天')
+    }
+
     function Panel(props) {
       const open = useOpen()
-      const [context, setContext] = React.useState(null)
       const [modelCatalog, setModelCatalog] = React.useState(null)
       const [modelKey, setModelKey] = React.useState('')
       const [effort, setEffort] = React.useState('')
-      const [mode, setMode] = React.useState('workspace-write')
-      const [commandsList, setCommandsList] = React.useState([])
       const [messages, setMessages] = React.useState([])
       const [input, setInput] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [jobId, setJobId] = React.useState(null)
       const [error, setError] = React.useState(null)
-      let textareaEl = null
+      const [confirmClear, setConfirmClear] = React.useState(false)
+
+      store.modelKey = modelKey
+      store.effort = effort
+      store.messages = messages
 
       const findModel = (key) => {
         if (key === '') return null
@@ -259,41 +338,15 @@ return {
         return null
       }
 
-      const pickCommand = (name) => {
-        setInput('/' + name + ' ')
-        if (textareaEl !== null) textareaEl.focus()
-      }
-
-      const commandSuggestions = (() => {
-        const text = input.trimStart()
-        if (!text.startsWith('/')) return []
-        const rest = text.slice(1).trim()
-        const spaceIndex = rest.indexOf(' ')
-        if (spaceIndex !== -1) return []
-        const prefix = rest.toLowerCase()
-        return commandsList.filter((c) => c.name.startsWith(prefix)).slice(0, 8)
-      })()
-
       React.useEffect(() => {
         if (!open) return
         let cancelled = false
         setError(null)
-        host.call('sidechat/context', { sessionId: props.sessionId }).then((res) => {
-          if (!cancelled) setContext(res)
-        }).catch((err) => {
-          if (!cancelled) setError(String(err !== null && typeof err === 'object' && err.message !== undefined ? err.message : err))
-        })
         host.call('sidechat/models').then((res) => {
           if (!cancelled && res !== null && typeof res === 'object') setModelCatalog(res)
         }).catch(() => {})
-        host.call('sidechat/mode', { sessionId: props.sessionId }).then((res) => {
-          if (!cancelled && res !== null && typeof res === 'object' && typeof res.mode === 'string') setMode(res.mode)
-        }).catch(() => {})
-        host.call('sidechat/commands', { sessionId: props.sessionId }).then((res) => {
-          if (!cancelled && res !== null && typeof res === 'object' && Array.isArray(res.commands)) setCommandsList(res.commands)
-        }).catch(() => {})
         return () => { cancelled = true }
-      }, [open, props.sessionId])
+      }, [open])
 
       React.useEffect(() => {
         if (modelKey !== '') return
@@ -325,7 +378,14 @@ return {
           host.call('sidechat/poll', { jobId }).then((res) => {
             if (res === null || typeof res !== 'object') return
             setMessages((prev) => prev.map((message) => (
-              message.id === jobId ? { ...message, content: String(res.text || ''), error: res.error } : message
+              message.id === jobId
+                ? {
+                  ...message,
+                  content: String(res.text || ''),
+                  reasoning: String(res.reasoning || ''),
+                  error: res.error,
+                }
+                : message
             )))
             if (res.done) {
               setJobId(null)
@@ -341,10 +401,10 @@ return {
         return dispose
       }, [jobId])
 
-      const sendChat = () => {
-        const text = input.trim()
+      const send = (externalText) => {
+        const text = (externalText !== undefined && externalText !== null ? externalText : input).trim()
         if (text === '' || busy) return
-        const userMessage = { id: 'user-' + String(Date.now()), role: 'user', content: text }
+        const userMessage = { id: 'user-' + String(Date.now()), role: 'user', content: text, reasoning: '' }
         const history = messages.concat([userMessage])
           .filter((message) => message.content !== '')
           .map((message) => ({ role: message.role, content: message.content }))
@@ -365,42 +425,26 @@ return {
           const id = res !== null && typeof res === 'object' ? String(res.jobId) : ''
           if (id === '') throw new Error('侧边聊天：未返回 job id')
           setJobId(id)
-          setMessages((prev) => prev.concat([{ id, role: 'assistant', content: '', error: null }]))
+          setMessages((prev) => prev.concat([{ id, role: 'assistant', content: '', reasoning: '', error: null }]))
         }).catch((err) => {
           setError(String(err !== null && typeof err === 'object' && err.message !== undefined ? err.message : err))
           setBusy(false)
         })
       }
+      store.sendHook = send
 
-      const runCommand = () => {
-        const line = input.trim()
-        if (line === '' || busy) return
-        setMessages((prev) => prev.concat([{ id: 'cmd-' + String(Date.now()), role: 'user', content: line }]))
-        setInput('')
-        setBusy(true)
-        setError(null)
-        host.call('sidechat/command', { sessionId: props.sessionId, line }).then((res) => {
-          let text
-          if (res !== null && typeof res === 'object' && res.unknown) {
-            text = '未知命令：' + line + '\n\n可用的命令见输入框内的 / 建议列表。'
-          } else if (res !== null && typeof res === 'object' && res.result !== undefined && res.result !== null) {
-            if (res.result.kind === 'error') text = '命令执行失败：' + String(res.result.text || '未知错误')
-            else text = String(res.result.text || '命令已执行。')
-          } else {
-            text = '无结果：' + line
+      React.useEffect(() => {
+        if (!open) return
+        const dispose = ctx.interval(() => {
+          if (store.pendingSend !== null && store.pendingSend !== undefined && store.pendingSend !== '') {
+            const value = store.pendingSend
+            store.pendingSend = null
+            const hook = store.sendHook
+            if (typeof hook === 'function') hook(value)
           }
-          setMessages((prev) => prev.concat([{ id: 'cmdres-' + String(Date.now()), role: 'assistant', content: text, error: null }]))
-          setBusy(false)
-        }).catch((err) => {
-          setError(String(err !== null && typeof err === 'object' && err.message !== undefined ? err.message : err))
-          setBusy(false)
-        })
-      }
-
-      const send = () => {
-        if (input.trim().startsWith('/')) runCommand()
-        else sendChat()
-      }
+        }, 200)
+        return dispose
+      }, [open])
 
       const stop = () => {
         if (jobId !== null) {
@@ -410,25 +454,28 @@ return {
         }
       }
 
+      const clear = () => {
+        stop()
+        setMessages([])
+        setError(null)
+        setConfirmClear(false)
+      }
+
       const scrollToBottom = (el) => { if (el !== null) el.scrollTop = el.scrollHeight }
 
       const header = React.createElement('div', { className: 'sc-header' },
         React.createElement('span', { className: 'sc-header-title' }, '侧边聊天'),
+        React.createElement('button', { className: 'sc-icon-btn', onClick: () => setConfirmClear(true), title: '清空对话，开始新的侧边聊天', type: 'button' }, '清空'),
         React.createElement('button', { className: 'sc-icon-btn', onClick: () => setOpen(false), title: '关闭', type: 'button' }, '\u2715'),
       )
 
-      let contextRow
-      if (context === null) {
-        contextRow = React.createElement('div', { className: 'sc-context' }, '正在加载项目上下文\u2026')
-      } else {
-        const pieces = []
-        if (context.branch) pieces.push('\u2387 ' + context.branch)
-        const conversation = context.conversation
-        if (conversation !== undefined && conversation !== null && conversation.messages.length > 0) {
-          pieces.push((conversation.title || '当前对话') + ' \u00b7 ' + conversation.messages.length + ' 条')
-        }
-        contextRow = React.createElement('div', { className: 'sc-context' }, pieces.join('  \u00b7  ') || '无项目上下文')
-      }
+      const confirmRow = confirmClear
+        ? React.createElement('div', { className: 'sc-confirm' },
+            React.createElement('span', null, '清空后内容不可恢复，确认清空？'),
+            React.createElement('button', { className: 'sc-confirm-btn sc-confirm-btn-danger', onClick: clear, type: 'button' }, '确认清空'),
+            React.createElement('button', { className: 'sc-confirm-btn', onClick: () => setConfirmClear(false), type: 'button' }, '取消'),
+          )
+        : null
 
       const messageNodes = messages.map((message) => {
         const isUser = message.role === 'user'
@@ -440,8 +487,18 @@ return {
         } else {
           bodyChild = renderMarkdown(String(message.content || ''))
         }
+        const reasoningBlock = (!isUser && message.reasoning && message.reasoning !== '')
+          ? React.createElement('details', {
+            className: 'sc-reasoning',
+            open: busy,
+          },
+            React.createElement('summary', null, '\u{1F4AD} 思考过程'),
+            React.createElement('div', { className: 'sc-reasoning-body' }, message.reasoning),
+          )
+          : null
         return React.createElement('div', { key: message.id, className: isUser ? 'sc-msg sc-msg-user' : 'sc-msg sc-msg-assistant' },
           React.createElement('div', { className: 'sc-msg-role' }, isUser ? '你' : '助手'),
+          reasoningBlock,
           React.createElement('div', { className: 'sc-msg-body' }, bodyChild),
           message.error ? React.createElement('div', { className: 'sc-msg-error' }, String(message.error)) : null,
         )
@@ -450,10 +507,7 @@ return {
       let messagesArea
       if (messages.length === 0) {
         messagesArea = React.createElement('div', { className: 'sc-messages' },
-          React.createElement('div', { className: 'sc-empty' },
-            React.createElement('div', null, '可以问项目或旁边对话相关的问题。'),
-            React.createElement('div', null, '输入 / 可查看可执行的命令。'),
-          ),
+          React.createElement('div', { className: 'sc-empty' }, '可以问项目或旁边对话相关的问题。'),
         )
       } else {
         messagesArea = React.createElement('div', { className: 'sc-messages', ref: scrollToBottom }, messageNodes)
@@ -467,8 +521,6 @@ return {
           modelOptions.push(React.createElement('optgroup', { key: 'g-' + group.id, label: group.name }, optionNodes))
         }
       }
-      const modeOptions = MODES.map((m) =>
-        React.createElement('option', { key: m.id, value: m.id }, m.label))
 
       const selectedModelInfo = findModel(modelKey)
       const efforts = selectedModelInfo !== null && selectedModelInfo !== undefined
@@ -485,30 +537,14 @@ return {
           }, efforts.map((ef) => React.createElement('option', { key: ef.id, value: ef.id }, ef.name)))
         : null
 
-      const suggestNodes = commandSuggestions.length > 0
-        ? React.createElement('div', { className: 'sc-suggest' },
-            commandSuggestions.map((c) => React.createElement('button', {
-              key: c.name,
-              className: 'sc-suggest-item',
-              type: 'button',
-              onClick: () => pickCommand(c.name),
-            },
-              React.createElement('span', { className: 'sc-suggest-name' }, '/' + c.name),
-              React.createElement('span', { className: 'sc-suggest-desc' }, c.description || ''),
-            )),
-          )
-        : null
-
       const composer = React.createElement('div', { className: 'sc-composer' },
-        suggestNodes,
         React.createElement('div', { className: 'sc-input-row' },
           React.createElement('textarea', {
             className: 'sc-input',
             value: input,
-            placeholder: '提问，或输入 / 执行命令\u2026',
+            placeholder: '提问…',
             rows: 2,
             disabled: busy,
-            ref: (el) => { textareaEl = el },
             onChange: (event) => setInput(event.target.value),
             onKeyDown: (event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -519,29 +555,12 @@ return {
           }),
           React.createElement('button', {
             className: 'sc-send',
-            onClick: busy ? stop : send,
+            onClick: busy ? stop : () => send(),
             disabled: !busy && input.trim() === '',
             type: 'button',
           }, busy ? '停止' : '发送'),
         ),
         React.createElement('div', { className: 'sc-composer-tools' },
-          React.createElement('select', {
-            className: 'sc-select',
-            value: mode,
-            title: '本会话的沙箱权限模式',
-            onChange: (event) => {
-              const next = event.target.value
-              setMode(next)
-              host.call('sidechat/mode', { sessionId: props.sessionId, mode: next }).then((res) => {
-                if (res !== null && typeof res === 'object') {
-                  if (typeof res.mode === 'string') setMode(res.mode)
-                  if (res.error) setError(String(res.error))
-                }
-              }).catch((err) => {
-                setError(String(err !== null && typeof err === 'object' && err.message !== undefined ? err.message : err))
-              })
-            },
-          }, modeOptions),
           React.createElement('select', {
             className: 'sc-select',
             value: modelKey,
@@ -554,7 +573,7 @@ return {
 
       return React.createElement('div', { className: 'sc-panel', role: 'dialog', 'aria-label': '侧边聊天' },
         header,
-        contextRow,
+        confirmRow,
         error !== null ? React.createElement('div', { className: 'sc-error' }, String(error)) : null,
         messagesArea,
         composer,
@@ -565,6 +584,10 @@ return {
       { name: 'shell.overlay', id: 'sidechat-hotzone', order: 5, label: '侧边聊天' },
       () => React.createElement(HotZone),
     ))
+    const disposeSendButton = slots.inject('shell.overlay', () => slots.register(
+      { name: 'shell.overlay', id: 'sidechat-sendsel', order: 6, label: '添加到侧边聊天' },
+      () => React.createElement(SelectionSendButton),
+    ))
     const disposePanel = slots.inject('details', () => slots.register(
       { name: 'details' },
       (props) => React.createElement(Panel, props),
@@ -573,6 +596,7 @@ return {
     ctx.effect(() => () => {
       disposeCss()
       disposeHotZone()
+      disposeSendButton()
       disposePanel()
     })
   },

@@ -1,16 +1,7 @@
 /**
- * DSH Side Chat — Host half
- * ==========================
- * 平台：Host（Node 进程）
- * 用法：粘贴为 DSH Cordis 插件的 code.host（一个 plain-JS 函数体，返回 Cordis Plugin）。
- *
- * 职责：
- *  - 采集项目上下文（根目录 / Git 分支 / 顶层条目 / 当前模型）
- *  - 采集当前主会话上下文（标题 + 最近 12 条文本消息）
- *  - 模型目录（provider 分组 + 每模型的 reasoning efforts / defaultEffort）
- *  - 权限模式读写（sandbox/mode，带多层回退，session 不可用不抛错）
- *  - 斜杠命令列表与执行（commands 注册表 + 最小 AbortSignal 兼容对象）
- *  - llm.stream 流式生成（job + poll），并把实际生效的模型 ID 注入系统提示词
+ * DSH Side Chat — Host half（动态插件版，pkg-25）
+ * 用法：粘贴为 DSH Cordis 插件的 code.host（plain-JS 函数体，返回 Cordis Plugin）。
+ * 功能：项目/会话上下文采集、模型目录、llm.stream 流式生成（job + poll，含思考过程）。
  */
 return {
   apply(ctx) {
@@ -34,7 +25,7 @@ return {
           try { root = sp.workspaceRoot } catch (_) { /* ignore */ }
         }
       }
-      const context = { root: root || null, branch: null, entries: [], model: null }
+      const context = { root: root || null, branch: null, model: null }
       if (context.root === null) return context
       const fs = ctx.get('fs')
       if (fs !== undefined) {
@@ -44,11 +35,6 @@ return {
           const match = /ref:\s*refs\/heads\/([^\s]+)/.exec(text)
           if (match !== null) context.branch = match[1]
         } catch (_) { /* not a git repository */ }
-        try {
-          const dir = await fs.resolve('.', { cwd: context.root })
-          const list = await fs.listDir(dir)
-          context.entries = list.slice(0, 40).map((entry) => ({ name: entry.name, type: entry.type }))
-        } catch (_) { /* directory listing failed */ }
       }
       const adm = ctx.get('agentDefaultModel')
       if (adm !== undefined) {
@@ -96,44 +82,6 @@ return {
       return out
     }
 
-    function foldSandboxMode(events) {
-      let mode
-      if (Array.isArray(events)) {
-        for (const event of events) {
-          if (event !== null && typeof event === 'object' && event.type === 'sandbox/mode'
-            && event.data !== null && event.data !== undefined && typeof event.data.mode === 'string') {
-            mode = event.data.mode
-          }
-        }
-      }
-      return mode
-    }
-
-    async function readEffectiveMode(sessionId) {
-      const sp = ctx.get('sandboxPolicy')
-      if (sp !== undefined) {
-        const sessions = ctx.get('sessions')
-        const session = sessions === undefined || sessionId === '' ? undefined : sessions.get(sessionId)
-        if (session !== undefined) {
-          let mode = sp.overrideOf(session)
-          if (mode === undefined) mode = sp.defaultMode
-          if (mode !== undefined) return mode
-        }
-      }
-      if (sessionId !== '') {
-        const sq = ctx.get('sessionQuery')
-        if (sq !== undefined) {
-          try {
-            const snapshot = await sq.readSession(sessionId)
-            const folded = foldSandboxMode(snapshot.events)
-            if (folded !== undefined) return folded
-          } catch (_) { /* session unreadable; fall through to default */ }
-        }
-      }
-      if (sp !== undefined) return sp.defaultMode
-      return 'workspace-write'
-    }
-
     function buildSystemPrompt(context, provider, model, reasoningEffort) {
       const lines = [
         'You are a coding assistant embedded in the DeepSeek Harness side-chat panel.',
@@ -144,9 +92,6 @@ return {
       ]
       if (context.root !== null) lines.push('- Project root: ' + context.root)
       if (context.branch !== null) lines.push('- Git branch: ' + context.branch)
-      if (context.entries.length > 0) {
-        lines.push('- Top-level entries: ' + context.entries.map((entry) => entry.name + ' (' + entry.type + ')').join(', '))
-      }
       const conversation = context.conversation
       if (conversation !== undefined && conversation !== null && conversation.messages.length > 0) {
         lines.push('')
@@ -204,85 +149,6 @@ return {
       return { groups, current }
     }))
 
-    ctx.effect(() => harness.handle('sidechat/mode', async (args) => {
-      const sessionId = args !== null && typeof args === 'object' ? String(args.sessionId || '') : ''
-      if (args !== null && typeof args === 'object' && typeof args.mode === 'string') {
-        const next = args.mode
-        if (next !== 'read-only' && next !== 'workspace-write' && next !== 'danger-full-access') {
-          throw new Error('side chat: invalid sandbox mode ' + next)
-        }
-        const sessions = ctx.get('sessions')
-        const session = sessions === undefined || sessionId === '' ? undefined : sessions.get(sessionId)
-        if (session === undefined) {
-          const current = await readEffectiveMode(sessionId)
-          return { mode: current, error: '当前会话不可用，权限模式未修改' }
-        }
-        session.append('sandbox/mode', { mode: next })
-        return { mode: next }
-      }
-      const mode = await readEffectiveMode(sessionId)
-      return { mode }
-    }))
-
-    ctx.effect(() => harness.handle('sidechat/commands', (args) => {
-      const sessionId = args !== null && typeof args === 'object' ? String(args.sessionId || '') : ''
-      const agents = ctx.get('agents')
-      const commands = ctx.get('commands')
-      const agent = agents === undefined ? undefined : agents.get(sessionId)
-      if (commands === undefined || agent === undefined) return { commands: [] }
-      try {
-        const list = commands.list(agent)
-        return {
-          commands: list.map((c) => ({
-            name: c.name,
-            description: c.description,
-            input: c.input !== undefined && c.input !== null ? String(c.input.hint || '') : null,
-          })),
-        }
-      } catch (_) {
-        return { commands: [] }
-      }
-    }))
-
-    ctx.effect(() => harness.handle('sidechat/command', async (args) => {
-      const sessionId = args !== null && typeof args === 'object' ? String(args.sessionId || '') : ''
-      const line = args !== null && typeof args === 'object' && typeof args.line === 'string' ? args.line : ''
-      if (line.length === 0) throw new Error('side chat: empty command line')
-      const agents = ctx.get('agents')
-      const commands = ctx.get('commands')
-      const agent = agents === undefined ? undefined : agents.get(sessionId)
-      if (commands === undefined) throw new Error('side chat: command registry unavailable')
-      if (agent === undefined) throw new Error('side chat: current session has no active agent')
-      const signal = {
-        aborted: false,
-        reason: undefined,
-        listeners: new Set(),
-        addEventListener(type, fn) { if (type === 'abort') signal.listeners.add(fn) },
-        removeEventListener(type, fn) { if (type === 'abort') signal.listeners.delete(fn) },
-        dispatchEvent() { return true },
-        throwIfAborted() {
-          if (signal.aborted) {
-            const error = new Error(signal.reason || 'command aborted')
-            error.name = 'AbortError'
-            throw error
-          }
-        },
-      }
-      try {
-        const execution = await commands.execute(agent, line, signal)
-        if (execution === undefined || execution === null) return { unknown: true }
-        return { commandId: String(execution.commandId), result: execution.result }
-      } catch (error) {
-        return {
-          commandId: null,
-          result: {
-            kind: 'error',
-            text: String(error !== null && typeof error === 'object' && error.message !== undefined ? error.message : error),
-          },
-        }
-      }
-    }))
-
     ctx.effect(() => harness.handle('sidechat/start', async (args) => {
       const raw = args !== null && typeof args === 'object' && Array.isArray(args.messages) ? args.messages : []
       const sessionId = args !== null && typeof args === 'object' ? String(args.sessionId || '') : ''
@@ -322,7 +188,7 @@ return {
       }
       if (reasoningEffort !== undefined) options.reasoningEffort = reasoningEffort
       const id = 'sidechat-' + String(++seq)
-      const job = { id, text: '', done: false, error: null, provider, model }
+      const job = { id, text: '', reasoning: '', done: false, error: null, provider, model }
       jobs.set(id, job)
       ;(async () => {
         try {
@@ -330,6 +196,8 @@ return {
             if (jobs.get(id) !== job) return
             if (chunk.type === 'text-delta') {
               job.text += chunk.text
+            } else if (chunk.type === 'reasoning-delta') {
+              job.reasoning += chunk.text
             } else if (chunk.type === 'finish') {
               if (chunk.reason.kind === 'error') {
                 const failure = chunk.reason.failure
@@ -351,8 +219,8 @@ return {
     ctx.effect(() => harness.handle('sidechat/poll', (args) => {
       const id = args !== null && typeof args === 'object' ? String(args.jobId) : ''
       const job = jobs.get(id)
-      if (job === undefined) return { done: true, text: '', error: 'side chat: job not found' }
-      return { done: job.done, text: job.text, error: job.error }
+      if (job === undefined) return { done: true, text: '', reasoning: '', error: 'side chat: job not found' }
+      return { done: job.done, text: job.text, reasoning: job.reasoning, error: job.error }
     }))
 
     ctx.effect(() => harness.handle('sidechat/stop', (args) => {
