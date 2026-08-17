@@ -45,7 +45,6 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown",
-    "prepare": "tsc -p tsconfig.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "files": [

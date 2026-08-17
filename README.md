@@ -25,8 +25,8 @@ current project and session context.
 This package is a self-contained bundle: the host half (`SidechatService`)
 registers the `sidechat` Remote service and the browser half (the `./client`
 bundle) is picked up by the harness's client-modules roster, so **no web
-rebuild is needed**. Built artifacts are committed, so the install runs no
-build scripts.
+rebuild is needed**. Built artifacts are committed to the repository, so the
+install runs no build scripts and requires no build permission.
 
 ### One-line install from GitHub
 
@@ -34,15 +34,8 @@ build scripts.
 dsh plugin --profile web add github:kittsai/dsh-sidechat
 ```
 
-The profile's `pnpm-workspace.yaml` must allow the git-hosted package to run
-its scripts, because pnpm runs a git dependency's `prepare` after fetching:
-
-```yaml
-allowBuilds:
-  dsh-sidechat@github:kittsai/dsh-sidechat: true
-```
-
-> Pin a commit for reproducible installs: `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>` and set the same `allowBuilds` key with that SHA.
+> Pin a commit for reproducible installs:
+> `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>`.
 
 Then restart `dsh web` and hover the right edge of the window.
 
