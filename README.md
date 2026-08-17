@@ -1,88 +1,77 @@
 # dsh-sidechat
 
-Side chat panel for the **DeepSeek Harness** web GUI: hover the right edge of
-the browser to open a chat column beside the main conversation, grounded in the
-current project and session context.
+**中文** | [English](README.en.md)
 
-![Side chat panel](screenshot.png)
+面向 **DeepSeek Harness** Web GUI 的侧边聊天面板：鼠标悬停浏览器右边缘即可打开一个与主对话并排的聊天栏，回答基于当前项目与会话上下文。
 
-## Features
+![侧边聊天面板](screenshot.png)
 
-| Capability | Description |
+## 功能
+
+| 能力 | 说明 |
 | --- | --- |
-| Hover to open | Move the mouse to the browser's right edge to slide the panel in, side by side with the main conversation |
-| Project context | The panel injects the project root and current Git branch into every reply |
-| Session context | Answers stay consistent with the main conversation (last 12 messages) |
-| Streaming output | Replies stream token by token; generation can be stopped mid-flight |
-| Reasoning display | Model reasoning streams into a collapsible "💭 Reasoning" block |
-| Markdown | Headings, bold/italic, code blocks, lists, quotes, links, and tables |
-| Model / reasoning effort | Switch model and reasoning effort inside the panel (effort only when the model supports it) |
-| Clear | One-click clear with an irreversible second confirmation |
-| Selection to send | Select text in the main chat → "Add to side chat" → send it directly |
+| 悬停呼出 | 鼠标移到浏览器右边缘，面板滑入，与主对话并排显示 |
+| 项目上下文 | 每次回答自动注入项目根目录与当前 Git 分支 |
+| 会话上下文 | 与主对话保持上下文一致（最近 12 条消息） |
+| 流式输出 | 回答逐字流式显示，可中途停止生成 |
+| 思考过程 | 模型推理内容流式显示为可折叠的「💭 思考过程」块 |
+| Markdown | 标题、粗体/斜体、代码块、列表、引用、链接和表格 |
+| 模型 / 推理等级 | 面板内直接切换模型与推理等级（仅当模型支持时显示） |
+| 清空 | 一键清空，带「不可恢复」二次确认 |
+| 选中发送 | 在主聊天中选中文本 →「添加到侧边聊天」→ 直接发送 |
 
-## Install
+## 安装
 
-This package is a self-contained bundle: the host half (`SidechatService`)
-registers the `sidechat` Remote service and the browser half (the `./client`
-bundle) is picked up by the harness's client-modules roster, so **no web
-rebuild is needed**. Built artifacts are committed to the repository, so the
-install runs no build scripts and requires no build permission.
+本包为自包含 bundle：host 半（`SidechatService`）注册 `sidechat` Remote 服务，浏览器半（`./client` bundle）由 harness 的 client-modules roster 加载，因此**无需重建 web**。构建产物已提交到仓库，安装时不运行任何构建脚本，也无需构建权限。
 
-### One-line install from GitHub
+### GitHub 一行安装
 
 ```sh
 dsh plugin --profile web add github:kittsai/dsh-sidechat
 ```
 
-> Pin a commit for reproducible installs:
-> `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>`.
+> 固定 commit 以获得可复现安装：
+> `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>`
 
-Then restart `dsh web` and hover the right edge of the window.
+然后重启 `dsh web`，悬停窗口右边缘即可使用。
 
-### Install from a local directory
+### 本地目录安装
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-sidechat
 ```
 
-This links the directory directly (no prepare, no `allowBuilds` entry).
+直接链接目录（无 prepare、无需 `allowBuilds` 条目）。
 
-## Uninstall
+## 卸载
 
 ```sh
 dsh plugin --profile web remove dsh-sidechat
 ```
 
-## Usage tips
+## 使用提示
 
-- The panel opens only by hovering the right edge and closes with ✕; clicking
-  the main conversation does not collapse it.
-- Side chat is an independent Q&A surface: it does not write to the main
-  session and has no tools — good for conceptual, explanation, and
-  planning-style questions.
-- With reasoning effort `high` / `max` the model thinks first; the reasoning
-  block auto-expands while generating.
+- 面板只通过「悬停右边缘」打开，✕ 关闭；点击主对话不会收起
+- 侧边聊天是**独立问答面**：不写入主会话，也没有工具——适合概念、解释和方案类问题
+- 推理等级选 `high` / `max` 时模型先思考；生成中思考块自动展开
 
-## Repository structure
+## 仓库结构
 
 ```
-cordis.patch.yml                  # bundle patch: one row naming this package
-src/index.ts                      # host half: SidechatService (default export)
-src/client/                       # browser half: apply + panel components
-src/client/remote.ts              # hand-written Remote contribution (self-mounted)
-tsdown.config.ts                  # host transpile + client bundle build
-lib/                              # committed build artifacts (no build at install)
+cordis.patch.yml                  # bundle 补丁：一行声明本包
+src/index.ts                      # host 半：SidechatService（默认导出）
+src/client/                       # 浏览器半：apply + 面板组件
+src/client/remote.ts              # 手写 Remote contribution（自挂载）
+tsdown.config.ts                  # host 转译 + client bundle 构建
+lib/                              # 已提交的构建产物（安装时无需构建）
 ```
 
-## Development
+## 开发
 
-The build transpiles `src/` into `lib/` with `tsc` + `tsdown`; type resolution
-for `@deepseek-ai/*` peers points at a sibling `deepseek-harness` checkout's
-build artifacts (see `tsconfig.json` `paths`). After changing sources, rebuild
-and commit the artifacts:
+构建用 `tsc` + `tsdown` 将 `src/` 转译为 `lib/`；`@deepseek-ai/*` 对等依赖的类型解析指向同级 `deepseek-harness` 检出的构建产物（见 `tsconfig.json` 的 `paths`）。修改源码后重新构建并提交产物：
 
 ```sh
-pnpm install   # public toolchain only (react, zod, tsdown, typescript, lightningcss)
+pnpm install   # 仅公开工具链（react, zod, tsdown, typescript, lightningcss）
 pnpm run build
 ```
 
