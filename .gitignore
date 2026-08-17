@@ -1,0 +1,4 @@
+# Dependencies and local junk
+node_modules/
+*.log
+.DS_Store
