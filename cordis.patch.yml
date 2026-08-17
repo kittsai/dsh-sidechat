@@ -1,0 +1,9 @@
+# dsh-sidechat — side chat panel as a bundle patch layer.
+#
+# A single row names the package: the host half (default export
+# SidechatService) registers the `sidechat` Typert Remote, and the same
+# package's `dsh.client` declaration makes the row the browser roster entry
+# whose `/plugins/dsh-sidechat/client.js` bundle the modules node half serves.
+- insert:
+    - id: sidechat
+      name: 'dsh-sidechat'

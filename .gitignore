@@ -2,3 +2,6 @@
 node_modules/
 *.log
 .DS_Store
+
+# Local build verification config (paths point at a sibling harness checkout)
+tsconfig.build-verify.json

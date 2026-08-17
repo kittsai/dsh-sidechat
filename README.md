@@ -1,88 +1,96 @@
-# DSH Side Chat（侧边聊天）
+# dsh-sidechat
 
-一个面向 **DeepSeek Harness Web GUI** 的侧边聊天插件：**鼠标悬停浏览器右边缘**即可呼出，基于当前项目与会话上下文，与主对话区并排聊天。
+Side chat panel for the **DeepSeek Harness** web GUI: hover the right edge of
+the browser to open a chat column beside the main conversation, grounded in the
+current project and session context.
 
-![效果截图](screenshot.png)
+![Side chat panel](screenshot.png)
 
-## 功能
+## Features
 
-| 能力 | 说明 |
+| Capability | Description |
 | --- | --- |
-| 悬停呼出 | 鼠标靠近浏览器右边缘停留约 300ms，从右侧展开，与主对话并排 |
-| 项目上下文 | 自动注入项目根目录、Git 分支 |
-| 会话上下文 | 感知当前主会话最近 12 条消息，回答保持上下文一致 |
-| 流式输出 | 逐字显示，可中途停止 |
-| 思考过程 | 模型推理内容流式显示为可折叠「💭 思考过程」块 |
-| Markdown | 标题 / 粗斜体 / 代码块 / 列表 / 引用 / 链接 / 表格 |
-| 模型 / 推理等级 | 输入框内直接切换（推理等级仅在模型支持时出现） |
-| 清空 | 一键清空上下文开始新对话，带「不可恢复」二次确认 |
-| 选中添加 | 在主聊天中选中文本 → 浮出「添加到侧边聊天」→ 点击直接发送 |
+| Hover to open | Move the mouse to the browser's right edge to slide the panel in, side by side with the main conversation |
+| Project context | The panel injects the project root and current Git branch into every reply |
+| Session context | Answers stay consistent with the main conversation (last 12 messages) |
+| Streaming output | Replies stream token by token; generation can be stopped mid-flight |
+| Reasoning display | Model reasoning streams into a collapsible "💭 Reasoning" block |
+| Markdown | Headings, bold/italic, code blocks, lists, quotes, links, and tables |
+| Model / reasoning effort | Switch model and reasoning effort inside the panel (effort only when the model supports it) |
+| Clear | One-click clear with an irreversible second confirmation |
+| Selection to send | Select text in the main chat → "Add to side chat" → send it directly |
 
-## 安装
+## Install
 
-### 方式一：动态插件（推荐，零构建）
+This package is a self-contained bundle: the host half (`SidechatService`)
+registers the `sidechat` Remote service and the browser half (the `./client`
+bundle) is picked up by the harness's client-modules roster, so **no web
+rebuild is needed**. Built artifacts are committed, so the install runs no
+build scripts.
 
-不需要 clone 本仓库，只需要 DSH Web GUI 的 Cordis 面板：
-
-1. 打开 **Cordis 插件面板** → **定义插件**
-2. `code.host` ← 粘贴 [`host.js`](host.js) 的完整内容
-3. `code.client` ← 粘贴 [`client.js`](client.js) 的完整内容
-4. 名称填 `Project Side Chat`，批准运行
-5. 鼠标悬停浏览器右边缘，侧边聊天出现
-
-> 也可以让你的 agent 代劳：「请用 cordis_define 创建插件，code.host / code.client 分别取 github.com/kittsai/dsh-sidechat 的 host.js / client.js 内容，然后 cordis_run 运行它。」
-
-### 方式二：正式插件（源码部署）
-
-`packages/` 下是正式 npm 包：`@deepseek-ai/dsh-sidechat`（Host 服务 + bundle 载体）+ `@deepseek-ai/dsh-client-sidechat`（浏览器面板）。适合在 DeepSeek Harness 源码部署中使用：
-
-**第 1 步：放入包并打集成补丁**
-
-将两个包放进 harness 仓库（`packages/extensions/sidechat`、`packages/client/sidechat`），并追加以下 sidechat 相关行（均为纯追加，不影响其他包）：
-
-| 文件 | 追加内容 |
-| --- | --- |
-| `packages/api/remotes/src/client/index.ts` | import + export type + mount 列表加 `sidechatRemote` |
-| `packages/api/remotes/tsconfig.client.json` | references 加 `../../extensions/sidechat` |
-| `packages/api/remotes/package.json` | dependencies / devDependencies 加 `@deepseek-ai/dsh-sidechat` |
-| `tsconfig.host.json` / `tsconfig.client.json` | references 加两个新包 |
-| `packages/bundle/web-app/cordis.patch.yml` | 加 `sidechat-ui` 的 dsh.client 行 |
-| `packages/bundle/web-app/package.json` | dependencies 加 `@deepseek-ai/dsh-client-sidechat` |
-
-**第 2 步：安装并构建**
+### One-line install from GitHub
 
 ```sh
-pnpm install
-pnpm run build:lib && pnpm run build:web
+dsh plugin --profile web add github:kittsai/dsh-sidechat
 ```
 
-**第 3 步：挂载 bundle**
+The profile's `pnpm-workspace.yaml` must allow the git-hosted package to run
+its scripts, because pnpm runs a git dependency's `prepare` after fetching:
+
+```yaml
+allowBuilds:
+  dsh-sidechat@github:kittsai/dsh-sidechat: true
+```
+
+> Pin a commit for reproducible installs: `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>` and set the same `allowBuilds` key with that SHA.
+
+Then restart `dsh web` and hover the right edge of the window.
+
+### Install from a local directory
 
 ```sh
-dsh plugin --profile web add @deepseek-ai/dsh-sidechat
+dsh plugin --profile web add /path/to/dsh-sidechat
 ```
 
-**第 4 步：重启**
+This links the directory directly (no prepare, no `allowBuilds` entry).
+
+## Uninstall
 
 ```sh
-# 重启 dsh web，悬停右边缘即可使用
+dsh plugin --profile web remove dsh-sidechat
 ```
 
-> 注意：带浏览器 UI 的插件必须参与 web 前端构建（`dsh.client` 行由 client-modules 扫描进 `window.__DSH_BOOT__`），所以方式二需要重建 web dist——这是 DSH 插件生态的结构性约束。想要免构建体验请用方式一。
+## Usage tips
 
-## 使用提示
+- The panel opens only by hovering the right edge and closes with ✕; clicking
+  the main conversation does not collapse it.
+- Side chat is an independent Q&A surface: it does not write to the main
+  session and has no tools — good for conceptual, explanation, and
+  planning-style questions.
+- With reasoning effort `high` / `max` the model thinks first; the reasoning
+  block auto-expands while generating.
 
-- 面板只通过「悬停右边缘」展开、「✕」关闭；点击主聊天不会收起
-- 侧边聊天是**独立问答**：不写入主会话，也没有工具，适合问概念、解释、方案类问题
-- 推理等级选 `high` / `max` 时模型会先思考，「思考过程」块在生成中自动展开
-
-## 仓库结构
+## Repository structure
 
 ```
-host.js / client.js               # 动态插件（零构建，粘贴即用）
-screenshot.png                    # 效果截图
-packages/extensions/sidechat      # 正式 Host 包（Remote 服务 + bundle 载体）
-packages/client/sidechat          # 正式 Client 包（浏览器面板）
+cordis.patch.yml                  # bundle patch: one row naming this package
+src/index.ts                      # host half: SidechatService (default export)
+src/client/                       # browser half: apply + panel components
+src/client/remote.ts              # hand-written Remote contribution (self-mounted)
+tsdown.config.ts                  # host transpile + client bundle build
+lib/                              # committed build artifacts (no build at install)
+```
+
+## Development
+
+The build transpiles `src/` into `lib/` with `tsc` + `tsdown`; type resolution
+for `@deepseek-ai/*` peers points at a sibling `deepseek-harness` checkout's
+build artifacts (see `tsconfig.json` `paths`). After changing sources, rebuild
+and commit the artifacts:
+
+```sh
+pnpm install   # public toolchain only (react, zod, tsdown, typescript, lightningcss)
+pnpm run build
 ```
 
 ## License

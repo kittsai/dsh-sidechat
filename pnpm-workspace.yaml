@@ -1,0 +1,6 @@
+# Single-package repo: no workspace members. The plugin's peer packages are
+# provided by the dsh profile at runtime; the build resolves their types
+# through tsconfig paths to the harness build artifacts, so peers are never
+# installed here (autoInstallPeers off avoids pulling the broken rc.1 chain).
+packages: []
+autoInstallPeers: false
