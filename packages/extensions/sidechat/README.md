@@ -2,7 +2,7 @@
 
 DeepSeek Harness 侧边聊天的 **Host 半段**：一个 `sidechat` Typert Remote 服务，为浏览器侧边面板提供项目/会话上下文采集、模型目录、沙箱权限模式读写、斜杠命令列表与执行、以及 `llm.stream` 流式生成（job + poll）。
 
-配套的浏览器半段见 `@deepseek-ai/dsh-client-sidechat`，安装入口见 `@deepseek-ai/dsh-sidechat-bundle`。
+配套的浏览器半段见 `@deepseek-ai/dsh-client-sidechat`。本包同时是 **profile bundle 载体**：`cordis.patch.yml` 声明挂载 host 行 + client 行，安装方执行 `dsh plugin --profile web add @deepseek-ai/dsh-sidechat`。
 
 ## Remote 方法
 

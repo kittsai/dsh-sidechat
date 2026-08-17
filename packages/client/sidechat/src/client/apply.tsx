@@ -1,7 +1,8 @@
 /**
  * Side chat plugin, browser half: hover-to-open hot zone over `shell.overlay`
- * and the chat panel in the right `details` column. All panel capabilities are
- * driven through the host `sidechat` Remote (see @deepseek-ai/dsh-sidechat).
+ * and the chat panel in the right `details` column. The panel is a focused
+ * project Q&A surface: model/effort selection and streaming replies, driven
+ * through the host `sidechat` Remote (see @deepseek-ai/dsh-sidechat).
  * @module @deepseek-ai/dsh-client-sidechat/client
  */
 
@@ -48,12 +49,6 @@ const setOpenShared = (value: boolean, layout?: LayoutFace): void => {
   subscribers.forEach(listener => listener())
 }
 
-const MODES = [
-  { id: 'read-only', label: '只读' },
-  { id: 'workspace-write', label: '工作区写入' },
-  { id: 'danger-full-access', label: '完全访问' },
-]
-
 interface ModelOption {
   id: string
   name: string
@@ -64,11 +59,6 @@ interface ModelGroup {
   id: string
   name: string
   models: ModelOption[]
-}
-
-interface PanelContext {
-  branch: string | null
-  conversation: { title: string | null; messages: { role: string; text: string }[] }
 }
 
 const isHr = (line: string): boolean => /^-{3,}$/.test(line) || /^\*{3,}$/.test(line) || /^_{3,}$/.test(line)
@@ -175,12 +165,9 @@ interface PanelProps {
 /** The side-chat panel occupying the right details column. */
 function Panel(props: PanelProps): ReactElement {
   const { ctx, sessionId } = props
-  const [context, setContext] = useState<PanelContext | null>(null)
   const [modelCatalog, setModelCatalog] = useState<{ groups: ModelGroup[]; current: { provider: string; model: string } | null } | null>(null)
   const [modelKey, setModelKey] = useState('')
   const [effort, setEffort] = useState('')
-  const [mode, setMode] = useState('workspace-write')
-  const [commandsList, setCommandsList] = useState<{ name: string; description: string }[]>([])
   const [messages, setMessages] = useState<{ id: string; role: string; content: string; error: string | null }[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -201,22 +188,11 @@ function Panel(props: PanelProps): ReactElement {
   useEffect(() => {
     let cancelled = false
     setError(null)
-    void callRemote(() => ctx.remote.sidechat.getContext({ sessionId: String(sessionId) })).then(value => {
-      if (!cancelled) setContext(value)
-    }, (reason: unknown) => {
-      if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
-    })
     void callRemote(() => ctx.remote.sidechat.models()).then(value => {
       if (!cancelled) setModelCatalog(value)
     }, () => { /* catalog load failure is non-fatal */ })
-    void callRemote(() => ctx.remote.sidechat.mode({ sessionId: String(sessionId) })).then(value => {
-      if (!cancelled) setMode(value.mode)
-    }, () => { /* mode read failure is non-fatal */ })
-    void callRemote(() => ctx.remote.sidechat.commands({ sessionId: String(sessionId) })).then(value => {
-      if (!cancelled) setCommandsList(value.commands)
-    }, () => { /* command list failure is non-fatal */ })
     return () => { cancelled = true }
-  }, [ctx, sessionId])
+  }, [ctx])
 
   useEffect(() => {
     if (modelKey !== '' || modelCatalog?.current == null) return
@@ -253,7 +229,7 @@ function Panel(props: PanelProps): ReactElement {
     return () => { window.clearInterval(timer) }
   }, [ctx, jobId])
 
-  const sendChat = (): void => {
+  const send = (): void => {
     const text = input.trim()
     if (text === '' || busy) return
     const userMessage = { id: `user-${Date.now()}`, role: 'user', content: text, error: null }
@@ -287,35 +263,6 @@ function Panel(props: PanelProps): ReactElement {
     })
   }
 
-  const runCommand = (): void => {
-    const line = input.trim()
-    if (line === '' || busy) return
-    setMessages(prev => prev.concat([{ id: `cmd-${Date.now()}`, role: 'user', content: line, error: null }]))
-    setInput('')
-    setBusy(true)
-    setError(null)
-    void callRemote(() => ctx.remote.sidechat.command({ sessionId: String(sessionId), line })).then(value => {
-      const record = value as { unknown?: boolean; result?: { kind: string; text?: string } }
-      let text: string
-      if (record.unknown === true) text = `未知命令：${line}\n\n可用的命令见输入框内的 / 建议列表。`
-      else if (record.result !== undefined) {
-        text = record.result.kind === 'error'
-          ? `命令执行失败：${record.result.text ?? '未知错误'}`
-          : (record.result.text ?? '命令已执行。')
-      } else text = `无结果：${line}`
-      setMessages(prev => prev.concat([{ id: `cmdres-${Date.now()}`, role: 'assistant', content: text, error: null }]))
-      setBusy(false)
-    }, (reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason))
-      setBusy(false)
-    })
-  }
-
-  const send = (): void => {
-    if (input.trim().startsWith('/')) runCommand()
-    else sendChat()
-  }
-
   const stop = (): void => {
     if (jobId !== null) {
       void ctx.remote.sidechat.stop({ jobId }).then(() => {}, () => {})
@@ -323,15 +270,6 @@ function Panel(props: PanelProps): ReactElement {
       setBusy(false)
     }
   }
-
-  const commandSuggestions = ((): { name: string; description: string }[] => {
-    const text = input.trimStart()
-    if (!text.startsWith('/')) return []
-    const rest = text.slice(1).trim()
-    if (rest.indexOf(' ') !== -1) return []
-    const prefix = rest.toLowerCase()
-    return commandsList.filter(command => command.name.startsWith(prefix)).slice(0, 8)
-  })()
 
   const modelOptions: ReactElement[] = []
   for (const group of modelCatalog?.groups ?? []) {
@@ -348,17 +286,6 @@ function Panel(props: PanelProps): ReactElement {
     </select>
   ) : null
 
-  const suggestNodes = commandSuggestions.length > 0 ? (
-    <div className={css.suggest}>
-      {commandSuggestions.map(command => (
-        <button key={command.name} className={css.suggestItem} type="button" onClick={() => { setInput(`/${command.name} `) }}>
-          <span className={css.suggestName}>{`/${command.name}`}</span>
-          <span className={css.suggestDesc}>{command.description}</span>
-        </button>
-      ))}
-    </div>
-  ) : null
-
   const messageNodes = messages.map(message => {
     const isUser = message.role === 'user'
     const body = isUser
@@ -373,37 +300,24 @@ function Panel(props: PanelProps): ReactElement {
     )
   })
 
-  const contextPieces: string[] = []
-  if (context !== null) {
-    if (context.branch !== null) contextPieces.push(`⎇ ${context.branch}`)
-    if (context.conversation.messages.length > 0) {
-      contextPieces.push(`${context.conversation.title ?? '当前对话'} · ${context.conversation.messages.length} 条`)
-    }
-  }
-
   return (
     <div className={css.panel} role="dialog" aria-label="侧边聊天">
       <div className={css.header}>
         <span className={css.headerTitle}>侧边聊天</span>
         <button className={css.iconBtn} type="button" title="关闭" onClick={() => setOpenShared(false, ctx.get('layout') as LayoutFace | undefined)}>✕</button>
       </div>
-      <div className={css.context}>{context === null ? '正在加载项目上下文…' : (contextPieces.join('  ·  ') || '无项目上下文')}</div>
       {error !== null ? <div className={css.error}>{error}</div> : null}
       <div className={css.messages}>
         {messageNodes.length === 0 ? (
-          <div className={css.empty}>
-            <div>可以问项目或旁边对话相关的问题。</div>
-            <div>输入 / 可查看可执行的命令。</div>
-          </div>
+          <div className={css.empty}>可以问项目或旁边对话相关的问题。</div>
         ) : messageNodes}
       </div>
       <div className={css.composer}>
-        {suggestNodes}
         <div className={css.inputRow}>
           <textarea
             className={css.input}
             value={input}
-            placeholder="提问，或输入 / 执行命令…"
+            placeholder="提问…"
             rows={2}
             disabled={busy}
             onChange={event => setInput(event.target.value)}
@@ -422,22 +336,6 @@ function Panel(props: PanelProps): ReactElement {
           >{busy ? '停止' : '发送'}</button>
         </div>
         <div className={css.composerTools}>
-          <select
-            className={css.select}
-            value={mode}
-            title="本会话的沙箱权限模式"
-            onChange={event => {
-              const next = event.target.value
-              setMode(next)
-              void callRemote(() => ctx.remote.sidechat.mode({ sessionId: String(sessionId), mode: next })).then(value => {
-                setMode(value.mode)
-              }, (reason: unknown) => {
-                setError(reason instanceof Error ? reason.message : String(reason))
-              })
-            }}
-          >
-            {MODES.map(modeOption => <option key={modeOption.id} value={modeOption.id}>{modeOption.label}</option>)}
-          </select>
           <select className={css.select} value={modelKey} title="侧边聊天的回复模型" onChange={event => setModelKey(event.target.value)}>
             {modelOptions}
           </select>

@@ -50,15 +50,6 @@
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
 }
-.context {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
-  font-size: 11px;
-  color: var(--dsw-alias-label-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .messages {
   flex: 1;
   overflow-y: auto;
@@ -242,37 +233,6 @@
 }
 .input:focus {
   outline: none;
-}
-.suggest {
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
-  max-height: 168px;
-  overflow-y: auto;
-}
-.suggestItem {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: none;
-  color: var(--dsw-alias-label-primary);
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.suggestItem:hover {
-  background: var(--dsw-alias-bg-layer-2);
-}
-.suggestName {
-  font-weight: 600;
-}
-.suggestDesc {
-  font-size: 11px;
-  color: var(--dsw-alias-label-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .send {
   border: none;

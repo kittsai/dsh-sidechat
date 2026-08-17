@@ -9,8 +9,6 @@
 export interface SidechatProjectContext {
   root: string | null
   branch: string | null
-  entries: { name: string; type: string }[]
-  model: { provider: string; model: string } | null
   conversation: { title: string | null; messages: { role: string; text: string }[] }
 }
 
@@ -30,22 +28,6 @@ export interface SidechatModelsResult {
   groups: SidechatModelGroup[]
   current: { provider: string; model: string } | null
 }
-
-/** Read or written session sandbox mode; `error` present when the write was refused. */
-export interface SidechatModeResult {
-  mode: string
-  error?: string
-}
-
-/** Slash commands the addressed session's agent resolves. */
-export interface SidechatCommandsResult {
-  commands: { name: string; description: string; input: string | null }[]
-}
-
-/** Settled command execution: `unknown: true` when the line did not resolve. */
-export type SidechatCommandResult =
-  | { unknown: true }
-  | { commandId: string | null; result: { kind: string; text?: string } }
 
 /** One started generation job. */
 export interface SidechatJobIdResult {
@@ -67,23 +49,6 @@ export interface SidechatStopResult {
 /** getContext request. */
 export interface SidechatContextArgs {
   sessionId: string
-}
-
-/** mode request; omit `mode` to read. */
-export interface SidechatModeArgs {
-  sessionId: string
-  mode?: string
-}
-
-/** commands request. */
-export interface SidechatCommandsArgs {
-  sessionId: string
-}
-
-/** command request. */
-export interface SidechatCommandArgs {
-  sessionId: string
-  line: string
 }
 
 /** start request; provider/model/effort override the default selection when present. */
