@@ -21,6 +21,8 @@ current project and session context.
 | Model / reasoning effort | Switch model and reasoning effort inside the panel (effort only when the model supports it) |
 | Clear | One-click clear with an irreversible second confirmation |
 | Selection to send | Select text in the main chat → "Add to side chat" → send it directly |
+| Settings switch | Settings → Side chat: turn the whole feature on or off at any time |
+| Ephemeral notice | A persistent "Side chat is temporary" tip at the bottom of the panel |
 
 ## Install
 

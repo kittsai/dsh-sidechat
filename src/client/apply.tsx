@@ -10,18 +10,22 @@
 
 import * as React from 'react'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionId, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: pulls the ui-layout SlotMap merge (shell.overlay / details seats).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls the ui-settings slot map (settings.section) and the
+// ctx.settingsScope service declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the Host Remote merge (ctx.remote.sidechat).
 import type {} from './typert.d.ts'
 import { TYPERT_REMOTE } from './remote.ts'
+import { SIDECHAT_SETTINGS_DEFAULT, SIDECHAT_SETTINGS_NAMESPACE, type SidechatSettings } from './settings.ts'
 import css from './sidechat.module.css'
 
-/** Required services: slot registry, layout transitions, and the Host Remote. */
-export const inject = ['slots', 'layout', 'remote']
+/** Required services: slot registry, layout transitions, the Host Remote, and the settings scope binder. */
+export const inject = ['slots', 'layout', 'remote', 'settingsScope']
 
 /** One mounted `sidechat` namespace, obtained via ctx.get after $mount. */
 type SidechatNamespace = TypertRemoteNamespaceMap['sidechat']
@@ -42,7 +46,7 @@ async function callRemote<T>(call: () => Promise<RemoteResultLike<T>>): Promise<
   return result.value
 }
 
-/** Shared plugin state: panel open flag plus the selection-to-send handoff. */
+/** Shared plugin state: panel open flag, the selection-to-send handoff, and the enabled master switch. */
 const store: {
   open: boolean
   modelKey: string
@@ -50,7 +54,8 @@ const store: {
   messages: unknown[]
   pendingSend: string | null
   sendHook: ((text: string) => void) | null
-} = { open: false, modelKey: '', effort: '', messages: [], pendingSend: null, sendHook: null }
+  enabled: boolean
+} = { open: false, modelKey: '', effort: '', messages: [], pendingSend: null, sendHook: null, enabled: SIDECHAT_SETTINGS_DEFAULT.enabled }
 const subscribers = new Set<() => void>()
 const setOpenShared = (value: boolean, layout?: LayoutFace): void => {
   store.open = value
@@ -61,6 +66,27 @@ const setOpenShared = (value: boolean, layout?: LayoutFace): void => {
     } catch { /* layout transition failed; keep local state */ }
   }
   subscribers.forEach(listener => listener())
+}
+
+/** Live settings-scope handle, bound in apply; drives the enabled master switch. */
+let settingsScopeHandle: SettingsScope<SidechatSettings> | undefined
+
+/** Publish one enabled-state change through the settings scope (persisted). */
+const setEnabledShared = (value: boolean): void => {
+  store.enabled = value
+  subscribers.forEach(listener => listener())
+  void settingsScopeHandle?.set('enabled', value)
+}
+
+/** Subscribe a component to the enabled master switch. */
+function useEnabled(): boolean {
+  const [enabled, setState] = useState(store.enabled)
+  useEffect(() => {
+    const listener = () => setState(store.enabled)
+    subscribers.add(listener)
+    return () => { subscribers.delete(listener) }
+  }, [])
+  return enabled
 }
 
 interface ModelOption {
@@ -203,8 +229,22 @@ function renderMarkdown(text: string): (string | ReactElement)[] {
   return nodes
 }
 
+/** Hover hot zone over the right edge; hidden while the panel is disabled. */
+function HotZone({ layout }: { layout: LayoutFace | undefined }): ReactElement | null {
+  const enabled = useEnabled()
+  if (!enabled) return null
+  return (
+    <div
+      className={css.hotzone}
+      onMouseEnter={() => { setOpenShared(true, layout) }}
+      aria-hidden="true"
+    />
+  )
+}
+
 /** Selection-triggered button: sends the main-chat selection into the side chat. */
 function SelectionSendButton(): ReactElement | null {
+  const enabled = useEnabled()
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [selectedText, setSelectedText] = useState('')
   useEffect(() => {
@@ -239,7 +279,7 @@ function SelectionSendButton(): ReactElement | null {
       window.document.removeEventListener('mouseup', onSelectionChange)
     }
   }, [])
-  if (position === null || selectedText === '') return null
+  if (position === null || selectedText === '' || !enabled) return null
   return React.createElement('button', {
     className: css.sendsel,
     type: 'button',
@@ -262,8 +302,9 @@ interface PanelProps {
 }
 
 /** The side-chat panel occupying the right details column. */
-function Panel(props: PanelProps): ReactElement {
+function Panel(props: PanelProps): ReactElement | null {
   const { ctx, sidechat, sessionId } = props
+  const enabled = useEnabled()
   const [modelCatalog, setModelCatalog] = useState<{ groups: ModelGroup[]; current: { provider: string; model: string } | null } | null>(null)
   const [modelKey, setModelKey] = useState('')
   const [effort, setEffort] = useState('')
@@ -486,6 +527,31 @@ function Panel(props: PanelProps): ReactElement {
           {effortSelect}
         </div>
       </div>
+      <div className={css.tip}>侧边聊天只是临时聊天</div>
+    </div>
+  )
+}
+
+/** Settings-panel section: the side-chat master switch. */
+function SidechatSettingsSection(): ReactElement {
+  const enabled = useEnabled()
+  return (
+    <div className={css.settingsSection}>
+      <div className={css.settingsRow}>
+        <div className={css.settingsText}>
+          <div className={css.settingsTitle}>侧边聊天</div>
+          <div className={css.settingsDesc}>开启后，鼠标悬停浏览器右边缘可打开侧边聊天面板。</div>
+        </div>
+        <label className={css.switch}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={event => setEnabledShared(event.target.checked)}
+          />
+          <span className={css.switchTrack} aria-hidden="true" />
+        </label>
+      </div>
+      <div className={css.settingsTip}>侧边聊天只是临时聊天，不会写入主会话，也不会执行工具。</div>
     </div>
   )
 }
@@ -504,17 +570,26 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
   // plugin (the service only appears after $mount runs inside apply).
   const sidechat = ctx.get('remote.sidechat') as SidechatNamespace | undefined
   if (sidechat === undefined) throw new Error('side chat: remote.sidechat not mounted')
+  // Bind the durable enabled switch: seed local state and keep it in sync
+  // with the user-settings document for the lifetime of this fiber.
+  settingsScopeHandle = ctx.settingsScope.bind<SidechatSettings>({ namespace: SIDECHAT_SETTINGS_NAMESPACE })
+  const seedEnabled = (): boolean => {
+    const snapshot = settingsScopeHandle?.getSnapshot()
+    return snapshot?.status === 'ready' ? (snapshot.value?.enabled ?? SIDECHAT_SETTINGS_DEFAULT.enabled) : store.enabled
+  }
+  store.enabled = seedEnabled()
+  disposers.push(settingsScopeHandle.subscribe(() => {
+    const next = seedEnabled()
+    if (next !== store.enabled) {
+      store.enabled = next
+      subscribers.forEach(listener => listener())
+    }
+  }))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     { name: 'shell.overlay', id: 'sidechat-hotzone', order: 5 },
     () => {
       const layout = ctx.get('layout') as LayoutFace | undefined
-      return (
-        <div
-          className={css.hotzone}
-          onMouseEnter={() => { setOpenShared(true, layout) }}
-          aria-hidden="true"
-        />
-      )
+      return <HotZone layout={layout} />
     },
   ))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
@@ -526,6 +601,10 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     // DetailsPanel at priority 0; a lower priority shadows it (lowest renders).
     { name: 'details', priority: -100 },
     (props: PropsRuntime<'details'>) => <Panel ctx={ctx} sidechat={sidechat} sessionId={props.sessionId} />,
+  ))
+  ctx.slots.inject('settings.section', () => ctx.slots.register(
+    { name: 'settings.section', id: 'sidechat', order: 40, label: () => '侧边聊天' },
+    () => <SidechatSettingsSection />,
   ))
   return () => {
     for (const dispose of disposers.reverse()) dispose()

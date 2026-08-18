@@ -8,7 +8,7 @@
  * @module dsh-sidechat/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
-/** Required services: slot registry, layout transitions, and the Host Remote. */
+/** Required services: slot registry, layout transitions, the Host Remote, and the settings scope binder. */
 export declare const inject: string[];
 /**
  * Browser plugin body: mount the Host Remote contribution, then the hover hot

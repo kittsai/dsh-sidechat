@@ -20,6 +20,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, LlmRuntime, Message, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { TypertGatewayBinding } from '@deepseek-ai/dsh-typert-protocol'
+import z from '@deepseek-ai/schemastery'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {
   SidechatContextArgs,
   SidechatJobIdResult,
@@ -64,14 +66,33 @@ interface Job {
  * Standard Cordis plugin shape: the module exports a named `apply` function
  * (the loader's `unwrapExports` passes the module namespace to
  * `registry.plugin`, which invokes `apply(ctx)`). `apply` instantiates the
- * service, which registers itself and its Gateway binding; no `@deepseek-ai/*`
- * module is imported at runtime, so the host half loads from a profile whose
- * node_modules holds only this package's own dependencies (peers are never
- * auto-installed with `autoInstallPeers: false`).
+ * service (which registers itself and its Gateway binding) and registers the
+ * durable settings section when the Host settings service is present. The
+ * only runtime `@deepseek-ai/*` import is `schemastery`, declared as a
+ * dependency so a profile install carries it; every other import is
+ * type-only.
  * @module dsh-sidechat
  */
+
+/** Settings namespace owned by the side-chat plugin. */
+export const SIDECHAT_SETTINGS_NAMESPACE = 'sidechat'
+
+/** Durable side-chat preferences surfaced in the Settings panel. */
+export interface SidechatSettings {
+  /** Master switch: when false the hot zone, panel, and selection send are hidden. */
+  enabled: boolean
+}
+
+/** Durable section schema; also the wire envelope the browser scope validates against. */
+export const SidechatSettingsSchema: z<SidechatSettings> = z.object({
+  enabled: z.boolean().default(true),
+})
+
 export function apply(ctx: Context): void {
   new SidechatService(ctx)
+  ctx.inject(['settings'], settingsCtx => {
+    settingsCtx.settings.register(SIDECHAT_SETTINGS_NAMESPACE as SettingsNamespace, SidechatSettingsSchema)
+  })
 }
 
 export class SidechatService {

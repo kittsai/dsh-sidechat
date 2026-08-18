@@ -52,6 +52,12 @@
       ],
       "@deepseek-ai/dsh-typert-registry/types": [
         "../deepseek-harness/packages/typert/registry/lib/types/types.d.ts"
+      ],
+      "@deepseek-ai/dsh-settings": [
+        "../deepseek-harness/packages/settings/settings/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-settings/client": [
+        "../deepseek-harness/packages/client/ui-settings/lib/types/client/index.d.ts"
       ]
     },
     "types": []
