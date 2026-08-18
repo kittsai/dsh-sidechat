@@ -512,7 +512,9 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     () => <SelectionSendButton />,
   ))
   ctx.slots.inject('details', () => ctx.slots.register(
-    { name: 'details' },
+    // `details` is a single slot also occupied by ui-conversation's
+    // DetailsPanel at priority 0; a lower priority shadows it (lowest renders).
+    { name: 'details', priority: -100 },
     (props: PropsRuntime<'details'>) => <Panel ctx={ctx} sessionId={props.sessionId} />,
   ))
   return () => {
