@@ -35,18 +35,15 @@ install runs no build scripts and requires no build permission.
 ### One-line install from GitHub
 
 ```sh
-dsh plugin --profile web add github:kittsai/dsh-sidechat
+pnpm dsh plugin --profile web add github:kittsai/dsh-sidechat
 ```
-
-> Pin a commit for reproducible installs:
-> `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>`.
 
 Then restart `dsh web` and hover the right edge of the window.
 
 ### Install from a local directory
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-sidechat
+pnpm dsh plugin --profile web add /path/to/dsh-sidechat
 ```
 
 This links the directory directly (no prepare, no `allowBuilds` entry).
@@ -54,7 +51,7 @@ This links the directory directly (no prepare, no `allowBuilds` entry).
 ## Uninstall
 
 ```sh
-dsh plugin --profile web remove dsh-sidechat
+pnpm dsh plugin --profile web remove dsh-sidechat
 ```
 
 ## Usage tips

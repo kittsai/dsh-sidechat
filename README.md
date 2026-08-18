@@ -29,18 +29,15 @@
 ### GitHub 一行安装
 
 ```sh
-dsh plugin --profile web add github:kittsai/dsh-sidechat
+pnpm dsh plugin --profile web add github:kittsai/dsh-sidechat
 ```
-
-> 固定 commit 以获得可复现安装：
-> `dsh plugin --profile web add github:kittsai/dsh-sidechat#<commit-sha>`
 
 然后重启 `dsh web`，悬停窗口右边缘即可使用。
 
 ### 本地目录安装
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-sidechat
+pnpm dsh plugin --profile web add /path/to/dsh-sidechat
 ```
 
 直接链接目录（无 prepare、无需 `allowBuilds` 条目）。
@@ -48,7 +45,7 @@ dsh plugin --profile web add /path/to/dsh-sidechat
 ## 卸载
 
 ```sh
-dsh plugin --profile web remove dsh-sidechat
+pnpm dsh plugin --profile web remove dsh-sidechat
 ```
 
 ## 使用提示
