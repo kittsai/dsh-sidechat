@@ -8,6 +8,8 @@ current project and session context.
 
 ![Side chat panel](screenshot.png)
 
+![Side chat switch in the Settings panel](screenshot-settings.png)
+
 ## Features
 
 | Capability | Description |

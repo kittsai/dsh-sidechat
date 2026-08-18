@@ -6,6 +6,8 @@
 
 ![侧边聊天面板](screenshot.png)
 
+![设置面板中的「侧边聊天」开关](screenshot-settings.png)
+
 ## 功能
 
 | 能力 | 说明 |
