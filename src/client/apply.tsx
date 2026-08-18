@@ -12,6 +12,7 @@ import * as React from 'react'
 import { useEffect, useState, type ReactElement } from 'react'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: pulls the ui-layout SlotMap merge (shell.overlay / details seats).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Host Remote merge (ctx.remote.sidechat).
@@ -21,6 +22,9 @@ import css from './sidechat.module.css'
 
 /** Required services: slot registry, layout transitions, and the Host Remote. */
 export const inject = ['slots', 'layout', 'remote']
+
+/** One mounted `sidechat` namespace, obtained via ctx.get after $mount. */
+type SidechatNamespace = TypertRemoteNamespaceMap['sidechat']
 
 /** Local face of the layout service (ui-layout provides it). */
 interface LayoutFace {
@@ -253,12 +257,13 @@ function SelectionSendButton(): ReactElement | null {
 /** Full panel props: the details runtime share plus the plugin context. */
 interface PanelProps {
   ctx: ClientContext
+  sidechat: SidechatNamespace
   sessionId: SessionId
 }
 
 /** The side-chat panel occupying the right details column. */
 function Panel(props: PanelProps): ReactElement {
-  const { ctx, sessionId } = props
+  const { ctx, sidechat, sessionId } = props
   const [modelCatalog, setModelCatalog] = useState<{ groups: ModelGroup[]; current: { provider: string; model: string } | null } | null>(null)
   const [modelKey, setModelKey] = useState('')
   const [effort, setEffort] = useState('')
@@ -287,7 +292,7 @@ function Panel(props: PanelProps): ReactElement {
   useEffect(() => {
     let cancelled = false
     setError(null)
-    void callRemote(() => ctx.remote.sidechat.models()).then(value => {
+    void callRemote(() => sidechat.models()).then(value => {
       if (!cancelled) setModelCatalog(value)
     }, () => { /* catalog load failure is non-fatal */ })
     return () => { cancelled = true }
@@ -310,7 +315,7 @@ function Panel(props: PanelProps): ReactElement {
   useEffect(() => {
     if (jobId === null) return
     const timer = window.setInterval(() => {
-      void callRemote(() => ctx.remote.sidechat.poll({ jobId })).then(value => {
+      void callRemote(() => sidechat.poll({ jobId })).then(value => {
         setMessages(prev => prev.map(message => (
           message.id === jobId
             ? { ...message, content: value.text, reasoning: value.reasoning, error: value.error }
@@ -355,7 +360,7 @@ function Panel(props: PanelProps): ReactElement {
         if (effort !== '') args.reasoningEffort = effort
       }
     }
-    void callRemote(() => ctx.remote.sidechat.start(args)).then(value => {
+    void callRemote(() => sidechat.start(args)).then(value => {
       setJobId(value.jobId)
       setMessages(prev => prev.concat([{ id: value.jobId, role: 'assistant', content: '', reasoning: '', error: null }]))
     }, (reason: unknown) => {
@@ -380,7 +385,7 @@ function Panel(props: PanelProps): ReactElement {
 
   const stop = (): void => {
     if (jobId !== null) {
-      void ctx.remote.sidechat.stop({ jobId }).then(() => {}, () => {})
+      void sidechat.stop({ jobId }).then(() => {}, () => {})
       setJobId(null)
       setBusy(false)
     }
@@ -494,6 +499,11 @@ function Panel(props: PanelProps): ReactElement {
 export async function apply(ctx: ClientContext): Promise<() => void> {
   const disposers: (() => void)[] = []
   disposers.push(await ctx.remote.$mount(TYPERT_REMOTE))
+  // The namespace service key is `remote.sidechat`; read it explicitly rather
+  // than declaring it in `inject`, which would deadlock this self-mounting
+  // plugin (the service only appears after $mount runs inside apply).
+  const sidechat = ctx.get('remote.sidechat') as SidechatNamespace | undefined
+  if (sidechat === undefined) throw new Error('side chat: remote.sidechat not mounted')
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     { name: 'shell.overlay', id: 'sidechat-hotzone', order: 5 },
     () => {
@@ -515,7 +525,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     // `details` is a single slot also occupied by ui-conversation's
     // DetailsPanel at priority 0; a lower priority shadows it (lowest renders).
     { name: 'details', priority: -100 },
-    (props: PropsRuntime<'details'>) => <Panel ctx={ctx} sessionId={props.sessionId} />,
+    (props: PropsRuntime<'details'>) => <Panel ctx={ctx} sidechat={sidechat} sessionId={props.sessionId} />,
   ))
   return () => {
     for (const dispose of disposers.reverse()) dispose()
