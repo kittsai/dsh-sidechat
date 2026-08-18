@@ -59,7 +59,8 @@ dsh plugin --profile web remove dsh-sidechat
 
 ```
 cordis.patch.yml                  # bundle 补丁：一行声明本包
-src/index.ts                      # host 半：SidechatService（默认导出）
+src/index.ts                      # host 半：命名导出 apply + SidechatService
+src/typert.ts                     # 手写 ./typert manifest（strict codecs）
 src/client/                       # 浏览器半：apply + 面板组件
 src/client/remote.ts              # 手写 Remote contribution（自挂载）
 tsdown.config.ts                  # host 转译 + client bundle 构建

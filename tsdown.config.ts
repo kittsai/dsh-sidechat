@@ -70,7 +70,7 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
 /** Node-half config: transpile tsc-emitted lib/types/*.js into lib/*.js. */
 const hostConfig: UserConfig = {
   name: BUNDLE_ID,
-  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/types.js'],
+  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/types.js', 'lib/types/typert.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

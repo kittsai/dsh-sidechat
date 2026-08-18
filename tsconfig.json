@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es2024",
-    "lib": ["es2024", "dom", "dom.iterable"],
+    "lib": [
+      "es2024",
+      "dom",
+      "dom.iterable"
+    ],
     "module": "esnext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -19,17 +23,42 @@
     "rootDir": "src",
     "outDir": "lib/types",
     "paths": {
-      "@deepseek-ai/cordis": ["../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-brand": ["../deepseek-harness/packages/util/brand/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-llm": ["../deepseek-harness/packages/llm/llm/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-session": ["../deepseek-harness/packages/core/session/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-invariants": ["../deepseek-harness/packages/runtime-diagnostics/invariants/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-typert-protocol": ["../deepseek-harness/packages/typert/protocol/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-client-runtime/client": ["../deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-layout/client": ["../deepseek-harness/packages/client/ui-layout/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-slots": ["../deepseek-harness/packages/client/ui-slots/lib/types/index.d.ts"]
+      "@deepseek-ai/cordis": [
+        "../deepseek-harness/vendor/cordis/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-brand": [
+        "../deepseek-harness/packages/util/brand/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-llm": [
+        "../deepseek-harness/packages/llm/llm/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-session": [
+        "../deepseek-harness/packages/core/session/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-invariants": [
+        "../deepseek-harness/packages/runtime-diagnostics/invariants/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-typert-protocol": [
+        "../deepseek-harness/packages/typert/protocol/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-runtime/client": [
+        "../deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-layout/client": [
+        "../deepseek-harness/packages/client/ui-layout/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-slots": [
+        "../deepseek-harness/packages/client/ui-slots/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-typert-registry/types": [
+        "../deepseek-harness/packages/typert/registry/lib/types/types.d.ts"
+      ]
     },
     "types": []
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.d.ts"
+  ]
 }
