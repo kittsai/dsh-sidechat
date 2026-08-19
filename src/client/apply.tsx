@@ -46,16 +46,74 @@ async function callRemote<T>(call: () => Promise<RemoteResultLike<T>>): Promise<
   return result.value
 }
 
-/** Shared plugin state: panel open flag, the selection-to-send handoff, and the enabled master switch. */
-const store: {
-  open: boolean
+/** One rendered side-chat message (owned plain copy, never a live handle). */
+interface SidechatMessage {
+  id: string
+  role: string
+  content: string
+  reasoning: string
+  error: string | null
+}
+
+/** One session's side-chat state; each conversation owns an independent entry. */
+interface SessionChatState {
   modelKey: string
   effort: string
-  messages: unknown[]
+  messages: SidechatMessage[]
+  input: string
+  busy: boolean
+  jobId: string | null
+  error: string | null
+}
+
+function emptySessionChatState(): SessionChatState {
+  return {
+    modelKey: '',
+    effort: '',
+    messages: [],
+    input: '',
+    busy: false,
+    jobId: null,
+    error: null,
+  }
+}
+
+/**
+ * Per-session chat state, keyed by session id and kept OUTSIDE the panel
+ * component so it survives remounts. The `details` slot is session-scoped and
+ * the web renderer remounts its occupant whenever the current session changes
+ * (StrictSessionEntry keys by sessionId), which would wipe component-local
+ * state; keeping one entry per session here and seeding it back on mount gives
+ * every conversation its own side chat instead of one panel shared by all
+ * sessions.
+ */
+const sessionStores = new Map<string, SessionChatState>()
+function getSessionStore(sessionId: string): SessionChatState {
+  let entry = sessionStores.get(sessionId)
+  if (entry === undefined) {
+    entry = emptySessionChatState()
+    sessionStores.set(sessionId, entry)
+  }
+  return entry
+}
+
+/**
+ * Panel-level state shared across sessions: open/closed visibility, the
+ * selection-send one-shot trigger, the mounted panel's send hook, and the
+ * durable enabled master switch. Chat content lives per session in
+ * `sessionStores`.
+ */
+const store: {
+  open: boolean
   pendingSend: string | null
   sendHook: ((text: string) => void) | null
   enabled: boolean
-} = { open: false, modelKey: '', effort: '', messages: [], pendingSend: null, sendHook: null, enabled: SIDECHAT_SETTINGS_DEFAULT.enabled }
+} = {
+  open: false,
+  pendingSend: null,
+  sendHook: null,
+  enabled: SIDECHAT_SETTINGS_DEFAULT.enabled,
+}
 const subscribers = new Set<() => void>()
 const setOpenShared = (value: boolean, layout?: LayoutFace): void => {
   store.open = value
@@ -305,19 +363,28 @@ interface PanelProps {
 function Panel(props: PanelProps): ReactElement | null {
   const { ctx, sidechat, sessionId } = props
   const enabled = useEnabled()
+  // Seed every panel field from THIS session's own store so a session-switch
+  // remount restores exactly that conversation's side chat (messages,
+  // in-flight job, model choice, draft); the sync lines below mirror every
+  // change back into the session entry.
+  const chat = getSessionStore(String(sessionId))
   const [modelCatalog, setModelCatalog] = useState<{ groups: ModelGroup[]; current: { provider: string; model: string } | null } | null>(null)
-  const [modelKey, setModelKey] = useState('')
-  const [effort, setEffort] = useState('')
-  const [messages, setMessages] = useState<{ id: string; role: string; content: string; reasoning: string; error: string | null }[]>([])
-  const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [modelKey, setModelKey] = useState(chat.modelKey)
+  const [effort, setEffort] = useState(chat.effort)
+  const [messages, setMessages] = useState<SidechatMessage[]>(chat.messages)
+  const [input, setInput] = useState(chat.input)
+  const [busy, setBusy] = useState(chat.busy)
+  const [jobId, setJobId] = useState<string | null>(chat.jobId)
+  const [error, setError] = useState<string | null>(chat.error)
   const [confirmClear, setConfirmClear] = useState(false)
 
-  store.modelKey = modelKey
-  store.effort = effort
-  store.messages = messages
+  chat.modelKey = modelKey
+  chat.effort = effort
+  chat.messages = messages
+  chat.input = input
+  chat.busy = busy
+  chat.jobId = jobId
+  chat.error = error
 
   const findModel = (key: string): ModelOption | null => {
     if (key === '') return null

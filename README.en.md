@@ -17,6 +17,7 @@ current project and session context.
 | Hover to open | Move the mouse to the browser's right edge to slide the panel in, side by side with the main conversation |
 | Project context | The panel injects the project root and current Git branch into every reply |
 | Session context | Answers stay consistent with the main conversation (last 12 messages) |
+| Per-session history | Each conversation keeps its own side-chat history; switching sessions does not mix them |
 | Streaming output | Replies stream token by token; generation can be stopped mid-flight |
 | Reasoning display | Model reasoning streams into a collapsible "💭 Reasoning" block |
 | Markdown | Headings, bold/italic, code blocks, lists, quotes, links, and tables |
